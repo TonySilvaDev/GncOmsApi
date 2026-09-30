@@ -1,0 +1,6 @@
+@GncOmsApi_HostAddress = http://localhost:5082
+
+GET {{GncOmsApi_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
