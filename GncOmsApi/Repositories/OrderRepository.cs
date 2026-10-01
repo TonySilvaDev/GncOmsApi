@@ -83,7 +83,7 @@ namespace GncOmsApi.Repositories
         public async Task<CarrierCatalogo?> GetCarrierCatalogoByExternalIdAsync(string externalCarrierId)
         {
             return await context.CarrierCatalogo
-                        .FirstOrDefaultAsync(x => x.ExternalCarrierId == externalCarrierId);
+                        .FirstOrDefaultAsync(x => x.ExternalCarrierId == externalCarrierId && x.Activo);
         }
 
         public async Task<Pedido?> GetOrderByIdAsync(Guid pedidoId)
@@ -92,10 +92,34 @@ namespace GncOmsApi.Repositories
                         .FirstOrDefaultAsync(x => x.PedidoId == pedidoId);
         }
 
-        public async Task UpdateOrderAsync(Pedido pedido)
+        public async Task UpdateOrderAsync(Pedido pedido, CarrierAsignado? carrierAsignado = null)
         {
-            context.Pedido.Update(pedido);
-            await context.SaveChangesAsync();
+            await using var transaction = await context.Database.BeginTransactionAsync();
+            try
+            {
+                context.Pedido.Update(pedido);
+                if (carrierAsignado != null)
+                {
+                    context.CarrierAsignado.Update(carrierAsignado);
+                }
+
+                await context.SaveChangesAsync();
+                await transaction.CommitAsync();
+            }
+            catch (Exception)
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+
+        public async Task<CarrierAsignado?> GetLatestCarrierAssignmentAsync(Guid pedidoId)
+        {
+            return await context.CarrierAsignado
+                .Where(x => x.PedidoId == pedidoId)
+                .OrderByDescending(x => x.FechaAsignacion)
+                .ThenByDescending(x => x.Id)
+                .FirstOrDefaultAsync();
         }
 
         public async Task<Pedido?> GetOrderByIdWithDetailsAsync(Guid pedidoId)
@@ -170,12 +194,25 @@ namespace GncOmsApi.Repositories
                                    x.Activo);
         }
 
-        public async Task ChangeOrderStatusAcync(Pedido pedido, HistoricoEstatusPedido historicoEstatusPedido, OutboxEvents outboxEvents)
+        public async Task ChangeOrderStatusAcync(
+            Pedido pedido,
+            HistoricoEstatusPedido historicoEstatusPedido,
+            OutboxEvents outboxEvents,
+            CarrierAsignado? nuevaAsignacion,
+            CarrierAsignado? asignacionActual)
         {
             await using var transaction = await context.Database.BeginTransactionAsync();
             try
             {
                 context.Pedido.Update(pedido);
+                if (nuevaAsignacion != null)
+                {
+                    await context.CarrierAsignado.AddAsync(nuevaAsignacion);
+                }
+                if (asignacionActual != null)
+                {
+                    context.CarrierAsignado.Update(asignacionActual);
+                }
                 await context.HistoricoEstatusPedido.AddAsync(historicoEstatusPedido);
                 await context.OutboxEvents.AddAsync(outboxEvents);
 

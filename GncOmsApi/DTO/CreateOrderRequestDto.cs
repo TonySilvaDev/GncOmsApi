@@ -12,8 +12,6 @@ namespace GncOmsApi.DTO
         public string ExternalDestinationId { get; set; }
         [Required(ErrorMessage = "El campo Origen es requerido")]
         public string Origen { get; set; }
-        public string CarrierFinalId { get; set; }
-        public string TrackingId { get; set; }
         [Required(ErrorMessage = "Customer es requerido")]
         public CustomerDto Customer { get; set; }
         [Required(ErrorMessage = "ShippingAddress es requerido")]

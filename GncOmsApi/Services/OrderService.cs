@@ -3,6 +3,7 @@ using GncOmsApi.DTO;
 using GncOmsApi.Exceptions;
 using GncOmsApi.Models;
 using GncOmsApi.Repositories;
+using GncOmsApi.Utilities;
 using Microsoft.AspNetCore.JsonPatch.SystemTextJson;
 using System.Text.Json;
 
@@ -37,13 +38,6 @@ namespace GncOmsApi.Services
                                 errorCode: "EstatusInvalido",
                                 mensaje: "No se encontro el estatus",
                                 detalle: "El estatus 'Ordenado' no existe");
-
-            var carrierCatalogo = await repository.GetCarrierCatalogoByExternalIdAsync(requestDto.CarrierFinalId)
-                        ?? throw new ApiException(
-                                statusCode: StatusCodes.Status404NotFound,
-                                errorCode: "CarrierInvalido",
-                                mensaje: "No se encontró el carrier.",
-                                detalle: $"El carrier '{requestDto.CarrierFinalId}' no existe o no está activo.");
 
             var cliente = await repository.GetClienteByEmailAsync(requestDto.Customer.Email);
             if (cliente == null)
@@ -86,8 +80,6 @@ namespace GncOmsApi.Services
                 OrderNumber = requestDto.OrderNumber,
                 CanalVentaId = canalVenta.Id,
                 EstatusActualId = estatusInicial.Id,
-                CarrierFinalId = carrierCatalogo.Id,
-                TrackingId = requestDto.TrackingId,
                 IntentosReroute = 0,
                 SyncIrrouteConfirmado = false,
                 SyncSaConfirmado = false,
@@ -108,8 +100,6 @@ namespace GncOmsApi.Services
                 requestDto.OrderNumber,
                 requestDto.Channel,
                 requestDto.Origen,
-                requestDto.CarrierFinalId,
-                requestDto.TrackingId,
                 requestDto.Customer,
                 requestDto.ShippingAddress,
                 requestDto.Items
@@ -181,6 +171,19 @@ namespace GncOmsApi.Services
             }
 
             bool existeCambio = false;
+            CarrierAsignado? carrierAsignado = null;
+            var actualizarCarrier = !string.IsNullOrWhiteSpace(requestDto.CarrierId);
+            var actualizarTracking = !string.IsNullOrWhiteSpace(requestDto.TrackingId);
+
+            if (actualizarCarrier || actualizarTracking)
+            {
+                carrierAsignado = await repository.GetLatestCarrierAssignmentAsync(orderId)
+                    ?? throw new ApiException(
+                        statusCode: StatusCodes.Status409Conflict,
+                        errorCode: "CarrierNoAsignado",
+                        mensaje: "No se puede actualizar el carrier o tracking de una orden sin asignación.",
+                        detalle: "Proporcione carrierId y trackingId al cambiar el estatus a 'Surtido' antes de corregir esos datos.");
+            }
 
             if (!string.IsNullOrWhiteSpace(requestDto.TiendaId))
             {
@@ -198,19 +201,21 @@ namespace GncOmsApi.Services
                                         detalle: $"El carrier '{requestDto.CarrierId}' no existe o no está activo.");
 
                 order.CarrierFinalId = carrier.Id;
+                carrierAsignado!.CarrierId = carrier.Id;
                 existeCambio = true;
             }
 
             if (!string.IsNullOrWhiteSpace(requestDto.TrackingId))
             {
                 order.TrackingId = requestDto.TrackingId;
+                carrierAsignado!.NumeroGuia = requestDto.TrackingId;
                 existeCambio = true;
             }
 
             if (existeCambio)
             {
                 order.FechaUltimaActualizacion = DateTime.UtcNow;
-                await repository.UpdateOrderAsync(order);
+                await repository.UpdateOrderAsync(order, carrierAsignado);
             }
             
 
@@ -376,33 +381,107 @@ namespace GncOmsApi.Services
                     );
             }
             var estatusActual = await repository.GetEstatusByIdAsync(order.EstatusActualId);
-            var estatusNuevo = await repository.GetEstatusByCodigoAsync(requestDto.NuevoEstatus);
+            if (estatusActual == null)
+            {
+                throw new ApiException(
+                    statusCode: StatusCodes.Status500InternalServerError,
+                    errorCode: "EstatusActualInvalido",
+                    mensaje: "No se pudo determinar el estatus actual de la orden.");
+            }
 
+            var estatusNuevo = await repository.GetEstatusByCodigoAsync(requestDto.NuevoEstatus);
             if (estatusNuevo == null)
             {
-                if (order == null)
-                {
-                    throw new ApiException(
-                        statusCode: StatusCodes.Status404NotFound,
-                        errorCode: "EstatusInvalido",
-                        mensaje: "No se encontró el estatus",
-                        detalle: $"El estatus '{requestDto.NuevoEstatus}' no existe en el catálogo"
-                        );
-                }
+                throw new ApiException(
+                    statusCode: StatusCodes.Status404NotFound,
+                    errorCode: "EstatusInvalido",
+                    mensaje: "No se encontró el estatus",
+                    detalle: $"El estatus '{requestDto.NuevoEstatus}' no existe en el catálogo");
             }
 
             bool esTransicionValida = await repository.IsValidTransitionAsync(order.EstatusActualId, estatusNuevo.Id);
-
             if (!esTransicionValida)
             {
-                if (order == null)
+                throw new ApiException(
+                    statusCode: StatusCodes.Status409Conflict,
+                    errorCode: "TransicionInvalida",
+                    mensaje: $"No se puede pasar de {estatusActual.Codigo} a {requestDto.NuevoEstatus}",
+                    detalle: new { estatusActual = estatusActual.Codigo, estatusSolicitado = requestDto.NuevoEstatus });
+            }
+
+            if (estatusNuevo.Codigo == "Asignado")
+            {
+                order.FechaAsignacion = DateTime.UtcNow;
+            }
+            else if (estatusNuevo.Codigo == "Surtido")
+            {
+                order.FechaSurtido = DateTime.UtcNow;
+            }
+
+            CarrierAsignado? nuevaAsignacion = null;
+            CarrierAsignado? asignacionActual = null;
+            if (estatusNuevo.Codigo == "Surtido")
+            {
+                var carrierId = requestDto.Campos.GetStringField("carrierId");
+                var trackingId = requestDto.Campos.GetStringField("trackingId");
+
+                if (string.IsNullOrWhiteSpace(carrierId) || string.IsNullOrWhiteSpace(trackingId))
                 {
                     throw new ApiException(
-                        statusCode: StatusCodes.Status409Conflict,
-                        errorCode: "TransicionInvalida",
-                        mensaje: $"No se puede pasar de {order.EstatusActual.Codigo} a { requestDto.NuevoEstatus}",
-                        detalle: new { estatusActual = order.EstatusActual.Codigo, estatusSolicitado = requestDto.NuevoEstatus }
-                        );
+                        statusCode: StatusCodes.Status400BadRequest,
+                        errorCode: "AsignacionIncompleta",
+                        mensaje: "Para surtir un pedido se requieren carrierId y trackingId en campos.");
+                }
+
+                var carrier = await repository.GetCarrierCatalogoByExternalIdAsync(carrierId)
+                    ?? throw new ApiException(
+                        statusCode: StatusCodes.Status404NotFound,
+                        errorCode: "CarrierInvalido",
+                        mensaje: "No se encontró el carrier activo.",
+                        detalle: $"El carrier '{carrierId}' no existe o no está activo.");
+
+                var fechaAsignacionCarrier = DateTime.UtcNow;
+                order.CarrierFinalId = carrier.Id;
+                order.TrackingId = trackingId;
+
+                nuevaAsignacion = new CarrierAsignado
+                {
+                    Id = Guid.NewGuid(),
+                    PedidoId = order.PedidoId,
+                    CarrierId = carrier.Id,
+                    FuenteSistema = requestDto.Origen,
+                    NumeroGuia = trackingId,
+                    Status = "Asignado",
+                    FechaAsignacion = fechaAsignacionCarrier
+                };
+            }
+            else
+            {
+                var actualizaTracking = requestDto.Campos.HasField("trackingId");
+                var actualizaTrackingStatus = estatusNuevo.Codigo == "En tránsito" || estatusNuevo.Codigo == "Entregado";
+                if (actualizaTracking || actualizaTrackingStatus)
+                {
+                    asignacionActual = await repository.GetLatestCarrierAssignmentAsync(orderId)
+                        ?? throw new ApiException(
+                            statusCode: StatusCodes.Status409Conflict,
+                            errorCode: "CarrierNoAsignado",
+                            mensaje: "No se puede actualizar el tracking de una orden que no tiene carrier asignado.");
+                    asignacionActual.Status = estatusNuevo.Codigo;
+
+                    if (actualizaTracking)
+                    {
+                        var trackingId = requestDto.Campos.GetStringField("trackingId");
+                        if (string.IsNullOrWhiteSpace(trackingId))
+                        {
+                            throw new ApiException(
+                                statusCode: StatusCodes.Status400BadRequest,
+                                errorCode: "TrackingInvalido",
+                                mensaje: "trackingId no puede estar vacío.");
+                        }
+
+                        order.TrackingId = trackingId;
+                        asignacionActual.NumeroGuia = trackingId;
+                    }
                 }
             }
 
@@ -440,14 +519,20 @@ namespace GncOmsApi.Services
                     order.TiendaAsignadaId = tiendaNode?.GetValue<string>();
                 }
 
-                if (requestDto.Campos.TryGetPropertyValue("trackingId", out var trackingNode))
+                if (estatusNuevo.Codigo != "Surtido" &&
+                    requestDto.Campos.TryGetPropertyValue("trackingId", out var trackingNode))
                 {
                     order.TrackingId = trackingNode?.GetValue<string>();
                 }
 
-                if (requestDto.Campos.TryGetPropertyValue("fechaEntrega", out var fechaEntregaNode) && DateTime.TryParse(fechaEntregaNode?.GetValue<string>(), out var fechaEntrega))
+                var fechaEntrega = requestDto.Campos.GetDateTimeField("fechaEntrega");
+                if (fechaEntrega.HasValue)
                 {
-                    order.FechaEntrega = fechaEntrega;
+                    order.FechaEntrega = fechaEntrega.Value;
+                    if (asignacionActual != null && estatusNuevo.Codigo == "Entregado")
+                    {
+                        asignacionActual.FechaEntregaReal = fechaEntrega.Value;
+                    }
                 }
             }            
 
@@ -475,7 +560,12 @@ namespace GncOmsApi.Services
             order.EstatusActualId = estatusNuevo.Id;
             order.FechaUltimaActualizacion = DateTime.UtcNow;
 
-            await repository.ChangeOrderStatusAcync(order, historicoEstatusPedido, outboxEvent);
+            await repository.ChangeOrderStatusAcync(
+                order,
+                historicoEstatusPedido,
+                outboxEvent,
+                nuevaAsignacion,
+                asignacionActual);
 
             return new ChangeStatusResponseDto
             {
@@ -485,5 +575,6 @@ namespace GncOmsApi.Services
                 ActualizadoEn = order.FechaUltimaActualizacion
             };
         }
+
     }
 }

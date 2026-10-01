@@ -13,11 +13,17 @@ namespace GncOmsApi.Repositories
         Task<Cliente?> GetClienteByEmailAsync(string email);
         Task<CarrierCatalogo?> GetCarrierCatalogoByExternalIdAsync(string externalCarrierId);
         Task<Pedido?> GetOrderByIdAsync(Guid pedidoId);
-        Task UpdateOrderAsync(Pedido pedido);
+        Task UpdateOrderAsync(Pedido pedido, CarrierAsignado? carrierAsignado = null);
+        Task<CarrierAsignado?> GetLatestCarrierAssignmentAsync(Guid pedidoId);
         Task<Pedido?> GetOrderByIdWithDetailsAsync(Guid pedidoId);
         Task<List<HistoricoEstatusPedido>?> GetOrderHistoryByIdAsync(Guid pedidoId);
         Task<List<Pedido>?> GetOrdersByFilterAsync(OrdersFilterRequestDto filter);
         Task<bool> IsValidTransitionAsync(Guid estatusOrigenId, Guid estatudDestinoId);
-        Task ChangeOrderStatusAcync(Pedido pedido, HistoricoEstatusPedido historicoEstatusPedido, OutboxEvents outboxEvents);
+        Task ChangeOrderStatusAcync(
+            Pedido pedido,
+            HistoricoEstatusPedido historicoEstatusPedido,
+            OutboxEvents outboxEvents,
+            CarrierAsignado? nuevaAsignacion,
+            CarrierAsignado? asignacionActual);
     }
 }
