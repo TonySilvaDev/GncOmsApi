@@ -95,6 +95,14 @@ namespace GncOmsApi.Services
                 }).ToList()
             };
 
+            var canalPedido = new CanalPedido
+            {
+                Id = Guid.NewGuid(),
+                PedidoId = newPedido.PedidoId,
+                CanalVentaId = canalVenta.Id,
+                IdExterno = requestDto.OrderNumber
+            };
+
             var payload = JsonSerializer.Serialize(new
             {
                 requestDto.OrderNumber,
@@ -122,7 +130,13 @@ namespace GncOmsApi.Services
                 MetadataJson = payload
             };
 
-            await repository.CreateOrderAsync(cliente, direccionEnvio, newPedido, outboxEvent, historicoEstatusPedido);
+            await repository.CreateOrderAsync(
+                cliente,
+                direccionEnvio,
+                newPedido,
+                canalPedido,
+                outboxEvent,
+                historicoEstatusPedido);
 
             return new CreateOrderResponseDto
             {

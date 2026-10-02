@@ -9,7 +9,13 @@ namespace GncOmsApi.Repositories
         Task<CanalVenta?> GetCanalByCodigoAsync(string codigo);
         Task<EstatusPedido?> GetEstatusByCodigoAsync(string codigo);
         Task<EstatusPedido?> GetEstatusByIdAsync(Guid estatusId);
-        Task<Pedido> CreateOrderAsync(Cliente cliente, DireccionEnvio direccionEnvio, Pedido pedido, OutboxEvents outboxEvents, HistoricoEstatusPedido historicoEstatusPedido);
+        Task<Pedido> CreateOrderAsync(
+            Cliente cliente,
+            DireccionEnvio direccionEnvio,
+            Pedido pedido,
+            CanalPedido canalPedido,
+            OutboxEvents outboxEvents,
+            HistoricoEstatusPedido historicoEstatusPedido);
         Task<Cliente?> GetClienteByEmailAsync(string email);
         Task<CarrierCatalogo?> GetCarrierCatalogoByExternalIdAsync(string externalCarrierId);
         Task<Pedido?> GetOrderByIdAsync(Guid pedidoId);

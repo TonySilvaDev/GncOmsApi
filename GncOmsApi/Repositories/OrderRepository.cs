@@ -7,7 +7,13 @@ namespace GncOmsApi.Repositories
 {
     public class OrderRepository(AppDbContext context) : IOrderRepository
     {
-        public async Task<Pedido> CreateOrderAsync(Cliente cliente, DireccionEnvio direccionEnvio, Pedido pedido, OutboxEvents outboxEvents, HistoricoEstatusPedido historicoEstatusPedido)
+        public async Task<Pedido> CreateOrderAsync(
+            Cliente cliente,
+            DireccionEnvio direccionEnvio,
+            Pedido pedido,
+            CanalPedido canalPedido,
+            OutboxEvents outboxEvents,
+            HistoricoEstatusPedido historicoEstatusPedido)
         {
             await using var transaction = await context.Database.BeginTransactionAsync();
 
@@ -30,6 +36,7 @@ namespace GncOmsApi.Repositories
                 pedido.DireccionEnvioId = direccionEnvio.DireccionId;
 
                 await context.Pedido.AddAsync(pedido);
+                await context.CanalPedido.AddAsync(canalPedido);
                 await context.OutboxEvents.AddAsync(outboxEvents);
                 await context.HistoricoEstatusPedido.AddAsync(historicoEstatusPedido);
 
