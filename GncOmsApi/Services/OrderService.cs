@@ -438,13 +438,16 @@ namespace GncOmsApi.Services
             {
                 var carrierId = requestDto.Campos.GetStringField("carrierId");
                 var trackingId = requestDto.Campos.GetStringField("trackingId");
+                var tipoServicioNombre = requestDto.Campos.GetStringField("tipoServicio");
 
-                if (string.IsNullOrWhiteSpace(carrierId) || string.IsNullOrWhiteSpace(trackingId))
+                if (string.IsNullOrWhiteSpace(carrierId) ||
+                    string.IsNullOrWhiteSpace(trackingId) ||
+                    string.IsNullOrWhiteSpace(tipoServicioNombre))
                 {
                     throw new ApiException(
                         statusCode: StatusCodes.Status400BadRequest,
                         errorCode: "AsignacionIncompleta",
-                        mensaje: "Para surtir un pedido se requieren carrierId y trackingId en campos.");
+                        mensaje: "Para surtir un pedido se requieren carrierId, trackingId y tipoServicio en campos.");
                 }
 
                 var carrier = await repository.GetCarrierCatalogoByExternalIdAsync(carrierId)
@@ -454,9 +457,27 @@ namespace GncOmsApi.Services
                         mensaje: "No se encontró el carrier activo.",
                         detalle: $"El carrier '{carrierId}' no existe o no está activo.");
 
+                var tipoServicio = await repository.GetTipoServicioByNombreAsync(tipoServicioNombre)
+                    ?? throw new ApiException(
+                        statusCode: StatusCodes.Status404NotFound,
+                        errorCode: "TipoServicioInvalido",
+                        mensaje: "No se encontró el tipo de servicio.",
+                        detalle: $"El tipo de servicio '{tipoServicioNombre}' no existe.");
+
+                var tieneSlaActivo = await repository.IsActiveCarrierSlaAsync(carrier.Id, tipoServicio.Id);
+                if (!tieneSlaActivo)
+                {
+                    throw new ApiException(
+                        statusCode: StatusCodes.Status409Conflict,
+                        errorCode: "SlaNoConfigurado",
+                        mensaje: "No existe un SLA activo para el carrier y tipo de servicio seleccionados.",
+                        detalle: new { carrierId, tipoServicio = tipoServicio.Servicio });
+                }
+
                 var fechaAsignacionCarrier = DateTime.UtcNow;
                 order.CarrierFinalId = carrier.Id;
                 order.TrackingId = trackingId;
+                order.TipoOrden = tipoServicio.Servicio;
 
                 nuevaAsignacion = new CarrierAsignado
                 {

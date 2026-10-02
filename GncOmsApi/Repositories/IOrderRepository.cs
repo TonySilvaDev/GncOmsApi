@@ -9,6 +9,8 @@ namespace GncOmsApi.Repositories
         Task<CanalVenta?> GetCanalByCodigoAsync(string codigo);
         Task<EstatusPedido?> GetEstatusByCodigoAsync(string codigo);
         Task<EstatusPedido?> GetEstatusByIdAsync(Guid estatusId);
+        Task<TipoServicio?> GetTipoServicioByNombreAsync(string nombre);
+        Task<bool> IsActiveCarrierSlaAsync(Guid carrierId, Guid tipoServicioId);
         Task<Pedido> CreateOrderAsync(
             Cliente cliente,
             DireccionEnvio direccionEnvio,

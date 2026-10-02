@@ -81,6 +81,23 @@ namespace GncOmsApi.Repositories
                         .FirstOrDefaultAsync(x => x.Id == estatusId);
         }
 
+        public async Task<TipoServicio?> GetTipoServicioByNombreAsync(string nombre)
+        {
+            return await context.TipoServicio
+                .AsNoTracking()
+                .FirstOrDefaultAsync(x => x.Servicio == nombre);
+        }
+
+        public async Task<bool> IsActiveCarrierSlaAsync(Guid carrierId, Guid tipoServicioId)
+        {
+            return await context.CarrierSla
+                .AsNoTracking()
+                .AnyAsync(x =>
+                    x.CarrierId == carrierId &&
+                    x.TipoServicioId == tipoServicioId &&
+                    x.Activo);
+        }
+
         public async Task<Cliente?> GetClienteByEmailAsync(string email)
         {
             return await context.Cliente
